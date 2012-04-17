@@ -242,10 +242,16 @@ class libvirt_client(object):
         disk_dict=dict()
         for disk in vir_disks:
             disk_info = dom.blockInfo(disk,0)
+            disk_status = dom.blockStats(disk)
             disk_dict[disk]=dict()
             disk_dict[disk]['capacity'] = disk_info[0]
             disk_dict[disk]['allocation'] = disk_info[1]
             disk_dict[disk]['physical'] = disk_info[2]
+            disk_dict[disk]['rd_req'] = disk_status[0]
+            disk_dict[disk]['rd_bytes'] = disk_status[1]
+            disk_dict[disk]['wr_req'] = disk_status[2]
+            disk_dict[disk]['wr_bytes'] = disk_status[3]
+            disk_dict[disk]['errs'] = disk_status[4]
         result['vir_disks'] = disk_dict
         
         vir_interfaces = getNodeValue(domain_xml,'domain.devices.interface.target.dev').get_value()
@@ -338,9 +344,18 @@ class thread_update_db(threading.Thread):
 
 
 def main():
-    if globals()['setup']: setup_self()
+    try:
+        globals()['setup']
+    except KeyError:
+        pass
+    else:
+        setup_self()
     
-    if globals()['daemon']:
+    try:
+        globals()['daemon']
+    except KeyError:
+        pass
+    else:
         daemon_log_path = os.getcwd()+"/cloud_monitor_daemon.log"
         daemonize('/dev/null',daemon_log_path,daemon_log_path)
     
