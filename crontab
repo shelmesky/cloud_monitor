@@ -1,0 +1,9 @@
+# minute 01 in every hours
+1 * * * * root /data/cloud_monitor/make_result.py --hours
+
+# 0:01 in every day
+1 0 * * * root /data/cloud_monitor/make_result.py --days
+
+# 0:01 in 1st day in every month
+1 0 1 * * root /data/cloud_monitor/make_result.py --months
+
