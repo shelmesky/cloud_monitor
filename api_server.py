@@ -6,6 +6,7 @@ import sys
 import json
 import time
 from mimerender import mimerender
+from multiprocessing import Process
 
 try:
     import web as _web
@@ -273,7 +274,7 @@ class getMonthByUUID():
 
 if __name__ == '__main__':
     
-    """
+    
     logfile = '/dev/null'
     stdin = stdout = stderr = logfile
     si = open(stdin, 'r')
@@ -282,16 +283,24 @@ if __name__ == '__main__':
     os.dup2(si.fileno(), sys.stdin.fileno())
     os.dup2(so.fileno(), sys.stdout.fileno())
     os.dup2(se.fileno(), sys.stderr.fileno())
-    """
+    
     
     try:
         application = _web.application(urls,globals()).wsgifunc()
         server = WSGIServer(('',8080),application,backlog=10000)
         server.reuse_addr = True
         server.pre_start()
-        gevent.fork()
-        server.start_accepting()
-        server._stopped_event.wait()
+        #monkey.patch_all() will replace os.fork() by gevent.fork(), so we can use multiprocessing!
+        #gevent.fork()
+        def serve_forever():
+            server.start_accepting()
+            server._stopped_event.wait()
+        # start 8 process in multicore computer!
+        working_process = 8
+        
+        for i in range(working_process - 1):
+            Process(target=serve_forever, args=tuple()).start()
+
     except KeyboardInterrupt:
         pass
     
