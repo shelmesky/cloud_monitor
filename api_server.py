@@ -4,6 +4,7 @@ monkey.patch_all()
 import os
 import sys
 import json
+import time
 from mimerender import mimerender
 
 try:
@@ -34,6 +35,10 @@ urls = (
     '/setinterval','setInterval',
     '/enablebyuuid','enableByUUID',
     '/getdatabyuuid','getDataByUUID',
+    '/gethoursbyuuid','getHoursByUUID',
+    '/getdaysbyuuid','getDaysByUUID',
+    '/getmonthsbyuuid','getMonthByUUID',
+    '/getyearbyuuid','getYearByUUID',
     '/gateway','gateway',
     '/benchmark','Benchmark'
 )
@@ -154,6 +159,116 @@ class gateway():
                 pass
             else:
                 return {'message':'unknow_action'}
+
+
+class getHoursByUUID():
+    @mimerender(
+        default='json',
+        html = render_html,
+        xml = render_xml,
+        json = render_json,
+        txt = render_txt
+    )
+    def POST(self):
+        data = _web.input()
+        sql =""
+        table_hours = "cloud_result_hours"
+        timedate = time.strftime('%Y%m%d',time.localtime())
+        try:
+            uuid = getattr(data,'uuid')
+            sql = "`uuid`='%s'" % uuid
+        except AttributeError:
+            return {'message':'attribute_error'}
+            
+        try:
+            start_hour = getattr(data,'start_hour')
+            end_hour = getattr(data,'end_hour')
+        except Exception,e:
+            print e
+            sql += " and `time`>='%s'" % (timedate+'00')
+            sql += " and `time`<='%s'" % (timedate+'23')
+        else:
+            sql += " and `time`>='%s'" % start_hour
+            sql += " and `time`<='%s'" % end_hour
+        ret = db.select(table_hours,where=sql).list()
+        if ret:
+            return {'message':ret}
+        else:
+            return {'message':'empty'}
+
+
+class getDaysByUUID():
+    @mimerender(
+        default='json',
+        html = render_html,
+        xml = render_xml,
+        json = render_json,
+        txt = render_txt
+    )
+    def POST(self):
+        data = _web.input()
+        sql =""
+        table_days = "cloud_result_days"
+        timedate = time.strftime('%Y%m',time.localtime())
+        try:
+            uuid = getattr(data,'uuid')
+            sql = "`uuid`='%s'" % uuid
+        except AttributeError:
+            return {'message':'attribute_error'}
+            
+        try:
+            start_day = getattr(data,'start_day')
+            end_day = getattr(data,'end_day')
+        except Exception,e:
+            print e
+            sql += " and `time`>='%s'" % (timedate+'01')
+            sql += " and `time`<='%s'" % (timedate+'31')
+        else:
+            sql += " and `time`>='%s'" % start_day
+            sql += " and `time`<='%s'" % end_day
+            
+        ret = db.select(table_days,where=sql).list()
+        if ret:
+            return {'message':ret}
+        else:
+            return {'message':'empty'}
+    
+    
+class getMonthByUUID():
+    @mimerender(
+        default='json',
+        html = render_html,
+        xml = render_xml,
+        json = render_json,
+        txt = render_txt
+    )
+    def POST(self):
+        data = _web.input()
+        sql =""
+        table_days = "cloud_result_months"
+        timedate = time.strftime('%Y',time.localtime())
+        try:
+            uuid = getattr(data,'uuid')
+            sql = "`uuid`='%s'" % uuid
+        except AttributeError:
+            return {'message':'attribute_error'}
+            
+        try:
+            start_month = getattr(data,'start_month')
+            end_month = getattr(data,'end_month')
+        except Exception,e:
+            print e
+            sql += " and `time`>='%s'" % (timedate+'01')
+            sql += " and `time`<='%s'" % (timedate+'12')
+        else:
+            sql += " and `time`>='%s'" % start_month
+            sql += " and `time`<='%s'" % end_month
+            
+        ret = db.select(table_days,where=sql).list()
+        if ret:
+            return {'message':ret}
+        else:
+            return {'message':'empty'}
 
 
 if __name__ == '__main__':
