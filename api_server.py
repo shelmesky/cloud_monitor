@@ -7,9 +7,11 @@ import json
 import time
 from mimerender import mimerender
 from multiprocessing import Process
+import uuid
 
 try:
     import web as _web
+    from web import session as _session
 except (ImportError,ImportWarning) as e:
     print "Can not find python-webpy, in ubuntu just run \"sudo apt-get install python-webpy\"."
     print e
@@ -33,6 +35,8 @@ render_html = lambda message: '<html><body>%s</body></html>' % message
 render_txt = lambda message: message
 
 urls = (
+    '/login','login',
+    '/logout','logout',
     '/setinterval','setInterval',
     '/enablebyuuid','enableByUUID',
     '/getdatabyuuid','getDataByUUID',
@@ -44,6 +48,97 @@ urls = (
     '/benchmark','Benchmark'
 )
 
+class tokens(object):
+    tokens_table = "cloud_apiserver_tokens"
+    @staticmethod
+    def get_all_tokens():
+        return db.select(tokens.tokens_table).list()
+    
+    @staticmethod
+    def insert_token(token):
+        db.insert(tokens.tokens_table,token=token)
+    
+    @staticmethod
+    def update_token(token):
+        timedate = time.strftime('%Y%m%d%H%M',time.localtime())
+        last_use_time = db.select(tokens.tokens_table,where="`token`='%s'" % token).list()[0]['last_use_time']
+        if last_use_time =='':
+            last_use_time = 0
+        else:
+            last_use_time = int(last_use_time)
+        no_active_time = int(timedate) - last_use_time
+        if last_use_time and no_active_time >= 720:
+            db.delete(tokens.tokens_table,where="`token`='%s'" % token)
+            return False
+        db.update(tokens.tokens_table,where="`token`='%s'" % token,last_use_time=timedate)
+        return True
+    
+    @staticmethod
+    def remove_token(token):
+        if db.delete(tokens.tokens_table,where="`token`='%s'" % token) != 1:
+            raise ValueError,"no record"
+
+
+def require_login(func):
+    def proxy(self,*args,**kw):
+        try:
+            token =  _web.input()['token']
+        except KeyError:
+            return {'message':'not_login'}
+        else:
+            for line in tokens.get_all_tokens():
+                if token == line['token']:
+                    if not tokens.update_token(token):
+                        return {'message':'token_timeout'}
+                    return func(self,*args,**kw)
+            return {'message':'incorrect_token'} 
+    return proxy
+
+class login(object):
+    @mimerender(
+        default = 'json',
+        html = render_html,
+        xml  = render_xml,
+        json = render_json,
+        txt  = render_txt
+    )
+    def POST(self):
+        data = _web.input()
+        try:
+            username = getattr(data,'username')
+            password = getattr(data,'password')
+        except AttributeError:
+            return {'message':'need_auth_info'}
+        else:
+            if db.select('cloud_apiserver_user',where="`username`='%s' and `password`='%s'" % (username,password)).list():
+                token = str(uuid.uuid4())
+                tokens.insert_token(token)
+            else:
+                return {'message':'wrong_username_or_password'}
+        return {'message':{'token':token}}
+
+class logout(object):
+    @mimerender(
+        default = 'json',
+        html = render_html,
+        xml  = render_xml,
+        json = render_json,
+        txt  = render_txt
+    )
+    def POST(self):
+        data = _web.input()
+        try:
+            token = getattr(data,'token')
+        except AttributeError:
+            return {'message':'need_token_info'}
+        else:
+            try:
+                tokens.remove_token(token)
+            except ValueError:
+                return {'message':'logout_error'}
+            else:
+                return {'message':'logout_success'}
+
 class setInterval():
     @mimerender(
         default = 'json',
@@ -52,6 +147,7 @@ class setInterval():
         json = render_json,
         txt  = render_txt
     )
+    @require_login
     def POST(self):
         table='cloud_config'
         data = _web.input()
@@ -63,6 +159,7 @@ class setInterval():
         db.update(table,where="`key`='interval'",value=interval)
         return {'message':'success'}
 
+
 class enableByUUID():
     @mimerender(
         default='json',
@@ -71,7 +168,9 @@ class enableByUUID():
         json = render_json,
         txt = render_txt
     )
+    @require_login
     def POST(self):
+        check_login(self)
         table = 'cloud_host'
         data = web.input()
         try:
@@ -90,6 +189,7 @@ class getDataByUUID():
         json = render_json,
         txt = render_txt
     )
+    @require_login
     def POST(self):
         try:
             data = _web.input()
@@ -121,6 +221,7 @@ class gateway():
         json = render_json,
         txt = render_txt
     )
+    @require_login
     def POST(self):
         data = _web.input()
         if not hasattr(data,'action'):
@@ -170,6 +271,7 @@ class getHoursByUUID():
         json = render_json,
         txt = render_txt
     )
+    @require_login
     def POST(self):
         data = _web.input()
         sql =""
@@ -206,6 +308,7 @@ class getDaysByUUID():
         json = render_json,
         txt = render_txt
     )
+    @require_login
     def POST(self):
         data = _web.input()
         sql =""
@@ -243,6 +346,7 @@ class getMonthByUUID():
         json = render_json,
         txt = render_txt
     )
+    @require_login
     def POST(self):
         data = _web.input()
         sql =""
@@ -274,7 +378,7 @@ class getMonthByUUID():
 
 if __name__ == '__main__':
     
-    
+    """
     logfile = '/dev/null'
     stdin = stdout = stderr = logfile
     si = open(stdin, 'r')
@@ -283,7 +387,7 @@ if __name__ == '__main__':
     os.dup2(si.fileno(), sys.stdin.fileno())
     os.dup2(so.fileno(), sys.stdout.fileno())
     os.dup2(se.fileno(), sys.stderr.fileno())
-    
+    """
     
     try:
         application = _web.application(urls,globals()).wsgifunc()
