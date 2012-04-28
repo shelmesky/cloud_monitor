@@ -1,6 +1,15 @@
 #!/usr/bin/python
-from gevent import monkey
-monkey.patch_all()
+
+try:
+    from gevent import monkey
+    monkey.patch_all()
+    from gevent.wsgi import WSGIServer
+    import gevent
+except (ImportError,ImportWarning) as e:
+    print "Can not find python-gevent, in ubuntu just run \"sudo apt-get install python-gevent\"."
+    print e
+    sys.exit(1)
+
 import os
 import sys
 import json
@@ -17,15 +26,8 @@ except (ImportError,ImportWarning) as e:
     print e
     sys.exit(1)
 
-try:
-    from gevent.wsgi import WSGIServer
-    import gevent
-except (ImportError,ImportWarning) as e:
-    print "Can not find python-gevent, in ubuntu just run \"sudo apt-get install python-gevent\"."
-    print e
-    sys.exit(1)
     
-_web.config.debug = False
+_web.config.debug = True
 
 db = _web.database(dbn='mysql',db='cloud_monitor',user='root',pw='root')
 
@@ -40,12 +42,14 @@ urls = (
     '/setinterval','setInterval',
     '/enablebyuuid','enableByUUID',
     '/getdatabyuuid','getDataByUUID',
+    '/getminutesbyuuid','getMinutesByUUID',
     '/gethoursbyuuid','getHoursByUUID',
     '/getdaysbyuuid','getDaysByUUID',
     '/getmonthsbyuuid','getMonthByUUID',
     '/getyearbyuuid','getYearByUUID',
     '/gateway','gateway',
-    '/benchmark','Benchmark'
+    '/benchmark','Benchmark',
+    '/getinstancelist','getInstanceList',
 )
 
 class tokens(object):
@@ -56,13 +60,16 @@ class tokens(object):
     
     @staticmethod
     def insert_token(token):
-        db.insert(tokens.tokens_table,token=token)
+        if not db.select(tokens.tokens_table,where="`token`='%s'" % token).list():
+            db.insert(tokens.tokens_table,token=token)
+            return True
+        return False
     
     @staticmethod
     def update_token(token):
         timedate = time.strftime('%Y%m%d%H%M',time.localtime())
         last_use_time = db.select(tokens.tokens_table,where="`token`='%s'" % token).list()[0]['last_use_time']
-        if last_use_time =='':
+        if not last_use_time:
             last_use_time = 0
         else:
             last_use_time = int(last_use_time)
@@ -112,7 +119,8 @@ class login(object):
         else:
             if db.select('cloud_apiserver_user',where="`username`='%s' and `password`='%s'" % (username,password)).list():
                 token = str(uuid.uuid4())
-                tokens.insert_token(token)
+                if not tokens.insert_token(token):
+                    return {'message':'allready_login!'}
             else:
                 return {'message':'wrong_username_or_password'}
         return {'message':{'token':token}}
@@ -138,6 +146,23 @@ class logout(object):
                 return {'message':'logout_error'}
             else:
                 return {'message':'logout_success'}
+
+class getInstanceList(object):
+    @mimerender(
+        default = 'json',
+        html = render_html,
+        xml  = render_xml,
+        json = render_json,
+        txt  = render_txt
+    )
+    @require_login
+    def POST(self):
+        table = 'cloud_host'
+        results = list()
+        ret = db.select(table,what='id,enable,uuid')
+        for line in ret:
+            results.append(line)
+        return {'message':results}
 
 class setInterval():
     @mimerender(
@@ -261,6 +286,42 @@ class gateway():
                 pass
             else:
                 return {'message':'unknow_action'}
+
+class getMinutesByUUID():
+    @mimerender(
+        default='json',
+        html = render_html,
+        xml = render_xml,
+        json = render_json,
+        txt = render_txt
+    )
+    @require_login
+    def POST(self):
+        data = _web.input()
+        sql =""
+        table_hours = "cloud_result"
+        timedate = time.strftime('%Y%m%d%H',time.localtime())
+        try:
+            uuid = getattr(data,'uuid')
+            sql = "`uuid`='%s'" % uuid
+        except AttributeError:
+            return {'message':'attribute_error'}
+            
+        try:
+            start_minute = getattr(data,'start_minute')
+            end_minute = getattr(data,'end_minute')
+        except Exception,e:
+            print e
+            sql += " and `time`>='%s'" % (timedate+'00')
+            sql += " and `time`<='%s'" % (timedate+'59')
+        else:
+            sql += " and `time`>='%s'" % start_minute
+            sql += " and `time`<='%s'" % end_minute
+        ret = db.select(table_hours,where=sql).list()
+        if ret:
+            return {'message':ret}
+        else:
+            return {'message':'empty'}
 
 
 class getHoursByUUID():
@@ -391,7 +452,7 @@ if __name__ == '__main__':
     
     try:
         application = _web.application(urls,globals()).wsgifunc()
-        server = WSGIServer(('',8080),application,backlog=10000)
+        server = WSGIServer(('',9090),application,backlog=10000)
         server.reuse_addr = True
         server.pre_start()
         #monkey.patch_all() will replace os.fork() by gevent.fork(), so we can use multiprocessing!

@@ -6,6 +6,7 @@ import web as _web
 import sys
 import getopt
 
+
 # configuration for mysql database
 mysql_username = "root"
 mysql_password = "root"

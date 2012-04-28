@@ -43,7 +43,7 @@ def usage():
     """
 
 try:
-    options,args = getopt.getopt(sys.argv[1:],"hsdqr",["--help", "--setup","--daemon","--quit","--dryrun"])
+    options,args = getopt.getopt(sys.argv[1:],"hsdqr",["help", "setup","daemon","quit","dryrun"])
 except getopt.GetoptError,e:
     print "Given arguments was error! %s" % e
     usage()
@@ -76,10 +76,10 @@ def setup_self():
     if os.getuid() != 0:
         print "Must be root can do this setup!"
         return
-    rc.local = '/etc/rc.local'
-    if os.path.exists(rc.local):
+    rc_local = '/etc/rc.local'
+    if os.path.exists(rc_local):
         try:
-            fd = open(rc.local)
+            fd = open(rc_local)
         except IOError as e:
             print "Can not open file: %s" % e
         else:
@@ -242,31 +242,43 @@ class libvirt_client(object):
         disk_dict=dict()
         for disk in vir_disks:
             disk_info = dom.blockInfo(disk,0)
-            disk_status = dom.blockStats(disk)
+            disk_status_first = dom.blockStats(disk)
             disk_dict[disk]=dict()
+            start_time = time.time()
+            time.sleep(3)
+            disk_status_second = dom.blockStats(disk)
+            end_time = time.time()
+            time_passed_disk = end_time - start_time
+            
             disk_dict[disk]['capacity'] = disk_info[0]
             disk_dict[disk]['allocation'] = disk_info[1]
             disk_dict[disk]['physical'] = disk_info[2]
-            disk_dict[disk]['rd_req'] = disk_status[0]
-            disk_dict[disk]['rd_bytes'] = disk_status[1]
-            disk_dict[disk]['wr_req'] = disk_status[2]
-            disk_dict[disk]['wr_bytes'] = disk_status[3]
-            disk_dict[disk]['errs'] = disk_status[4]
+            disk_dict[disk]['rd_req'] = (disk_status_second[0] - disk_status_first[0])/time_passed_disk
+            disk_dict[disk]['rd_bytes'] = (disk_status_second[1] - disk_status_first[1])/time_passed_disk
+            disk_dict[disk]['wr_req'] = (disk_status_second[2] - disk_status_first[2])/time_passed_disk
+            disk_dict[disk]['wr_bytes'] = (disk_status_second[3] - disk_status_first[3])/time_passed_disk
+            disk_dict[disk]['errs'] = (disk_status_second[4] - disk_status_first[4])/time_passed_disk
         result['vir_disks'] = disk_dict
         
         vir_interfaces = getNodeValue(domain_xml,'domain.devices.interface.target.dev').get_value()
         interface_dict=dict()
         for interface in vir_interfaces:
-            interface_info = dom.interfaceStats(interface)
+            interface_info_first = dom.interfaceStats(interface)
             interface_dict[interface] = dict()
-            interface_dict[interface]['rx_bytes'] = interface_info[0]
-            interface_dict[interface]['rx_packets'] = interface_info[1]
-            interface_dict[interface]['rx_errs'] = interface_info[2]
-            interface_dict[interface]['rx_drop'] = interface_info[3]
-            interface_dict[interface]['tx_bytes'] = interface_info[4]
-            interface_dict[interface]['tx_packets'] = interface_info[5]
-            interface_dict[interface]['tx_errs'] = interface_info[6]
-            interface_dict[interface]['tx_drop'] = interface_info[7]
+            start_time = time.time()
+            time.sleep(3)
+            interface_info_second = dom.interfaceStats(interface)
+            end_time = time.time()
+            time_passed = (end_time - start_time)
+            
+            interface_dict[interface]['rx_bytes'] = (interface_info_second[0]-interface_info_first[0])/time_passed
+            interface_dict[interface]['rx_packets'] = (interface_info_second[1]-interface_info_first[1])/time_passed
+            interface_dict[interface]['rx_errs'] = (interface_info_second[2]-interface_info_first[2])/time_passed
+            interface_dict[interface]['rx_drop'] = (interface_info_second[3]-interface_info_first[3])/time_passed
+            interface_dict[interface]['tx_bytes'] = (interface_info_second[4]-interface_info_first[4])/time_passed
+            interface_dict[interface]['tx_packets'] = (interface_info_second[5]-interface_info_first[5])/time_passed
+            interface_dict[interface]['tx_errs'] = (interface_info_second[6]-interface_info_first[6])/time_passed
+            interface_dict[interface]['tx_drop'] = (interface_info_second[7]-interface_info_first[7])/time_passed
         result['vir_interfaces'] = interface_dict
         
         self.queue.put(result)
@@ -345,19 +357,16 @@ class thread_update_db(threading.Thread):
 
 def main():
     try:
-        globals()['setup']
+        if globals()['setup']: setup_self()
     except KeyError:
         pass
-    else:
-        setup_self()
     
     try:
-        globals()['daemon']
+        if globals()['daemon']:
+            daemon_log_path = os.getcwd()+"/cloud_monitor_daemon.log"
+            daemonize('/dev/null',daemon_log_path,daemon_log_path)
     except KeyError:
         pass
-    else:
-        daemon_log_path = os.getcwd()+"/cloud_monitor_daemon.log"
-        daemonize('/dev/null',daemon_log_path,daemon_log_path)
     
     pool_do_check = []
     pool_update_db = []
