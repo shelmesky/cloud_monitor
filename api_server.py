@@ -32,7 +32,7 @@ except (ImportError,ImportWarning) as e:
     
 _web.config.debug = True
 
-_db = _web.database(dbn=db_engine,host=db_server,db=db_database,user=db_username,pw=db_password)
+db = _web.database(dbn=db_engine,host=db_server,db=db_database,user=db_username,pw=db_password)
 
 render_xml = lambda message: '<message>%s</message>' % message
 render_json = lambda **args: json.dumps(args)
