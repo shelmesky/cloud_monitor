@@ -286,7 +286,7 @@ class libvirt_client(object):
         self.conn.close()
 
 
-host_list = ['192.168.56.101']
+host_list = nova_compute_node
 
 #read uuids from remote libvirtd and store them to database
 class thread_read_host_list(threading.Thread):

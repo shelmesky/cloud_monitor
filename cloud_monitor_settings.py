@@ -8,4 +8,4 @@ db_database = 'cloud_monitor'
 
 api_server_port = 8080
 
-nova_compute_noe = ['10.0.200.1']
+nova_compute_node = ['10.0.200.1']
