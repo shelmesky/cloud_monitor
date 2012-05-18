@@ -481,7 +481,7 @@ if __name__ == '__main__':
     
     try:
         application = _web.application(urls,globals()).wsgifunc()
-        server = WSGIServer(('',9090),application,backlog=10000)
+        server = WSGIServer(('',api_server_port),application,backlog=10000)
         server.reuse_addr = True
         server.pre_start()
         #monkey.patch_all() will replace os.fork() by gevent.fork(), so we can use multiprocessing!
