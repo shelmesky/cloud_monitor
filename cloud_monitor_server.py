@@ -7,7 +7,7 @@ import getopt
 import time
 import logging
 import xml
-
+from cloud_monitor_settings import *
 
 try:
     import web as _web
@@ -15,7 +15,6 @@ except (ImportError,ImportWarning) as e:
     print "Can not find python-webpy, in ubuntu just run \"sudo apt-get install python-webpy\"."
     print e
     sys.exit(1)
-
 
 try:
     import libvirt as _libvirt
@@ -25,7 +24,7 @@ except (ImportError,ImportWarning) as e:
     sys.exit(1)
 
 _web.config.debug = False  
-db = _web.database(dbn='mysql',db='cloud_monitor',user='root',pw='root')
+db = _web.database(dbn=db_engine,host=db_server,db=db_database,user=db_username,pw=db_password)
 cloud_config_table = 'cloud_config'
 cloud_host_table = 'cloud_host'
 cloud_result_table = 'cloud_result'
@@ -287,7 +286,7 @@ class libvirt_client(object):
         self.conn.close()
 
 
-host_list = ['172.16.0.209']
+host_list = ['192.168.56.101']
 
 #read uuids from remote libvirtd and store them to database
 class thread_read_host_list(threading.Thread):

@@ -5,15 +5,11 @@ import time
 import web as _web
 import sys
 import getopt
+from cloud_monitor_settings import *
 
-
-# configuration for mysql database
-mysql_username = "root"
-mysql_password = "root"
-mysql_database= "cloud_monitor"
 
 _web.config.debug = False  # database debug option for webpy, if True it will print SQL statement in console
-db = _web.database(dbn='mysql',db=mysql_database,user=mysql_username,pw=mysql_password)
+db = _web.database(dbn=db_engine,host=db_server,db=db_database,user=db_username,pw=db_password)
 
 def usage():
     print """Usage: %s [-h|--hours]  [-d|--days]  [-m|--months] [-y|--year]

@@ -1,4 +1,6 @@
 #!/usr/bin/python
+# coding: utf-8
+
 
 try:
     from gevent import monkey
@@ -17,6 +19,7 @@ import time
 from mimerender import mimerender
 from multiprocessing import Process
 import uuid
+from cloud_monitor_settings import *
 
 try:
     import web as _web
@@ -29,7 +32,7 @@ except (ImportError,ImportWarning) as e:
     
 _web.config.debug = True
 
-db = _web.database(dbn='mysql',db='cloud_monitor',user='root',pw='root')
+_db = _web.database(dbn=db_engine,host=db_server,db=db_database,user=db_username,pw=db_password)
 
 render_xml = lambda message: '<message>%s</message>' % message
 render_json = lambda **args: json.dumps(args)
@@ -61,7 +64,8 @@ class tokens(object):
     @staticmethod
     def insert_token(token):
         if not db.select(tokens.tokens_table,where="`token`='%s'" % token).list():
-            db.insert(tokens.tokens_table,token=token)
+            timedate = time.strftime('%Y%m%d%H%M',time.localtime())
+            db.insert(tokens.tokens_table,token=token,last_use_time = timedate)
             return True
         return False
     
@@ -98,7 +102,7 @@ def require_login(func):
                     if not tokens.update_token(token):
                         return {'message':'token_timeout'}
                     return func(self,*args,**kw)
-            return {'message':'incorrect_token'} 
+            return {'message':'incorrect_token'}
     return proxy
 
 class login(object):
@@ -159,7 +163,7 @@ class getInstanceList(object):
     def POST(self):
         table = 'cloud_host'
         results = list()
-        ret = db.select(table,what='id,enable,uuid')
+        ret = db.select(table,what='id,enable,uuid,expired_time')
         for line in ret:
             results.append(line)
         return {'message':results}
@@ -195,16 +199,41 @@ class enableByUUID():
     )
     @require_login
     def POST(self):
-        check_login(self)
+        import datetime
+        from dateutil import relativedelta
         table = 'cloud_host'
-        data = web.input()
+        data = _web.input()
         try:
             uuid = data.uuid
-            enable = data.enable
+            duration = data.duration
         except AttributeError:
-            return {'message':'failed'}
-        db.update(table,where="`uuid`='%s'" % uuid,enable=enable)
-        return {'message':'success'}
+            raise _web.internalerror()
+        if duration:
+            try:
+                duration = int(duration)
+            except:
+                raise _web.notfound()
+        else:
+            raise _web.notfound()
+        try:
+            old_duration = db.select('cloud_host',where="`uuid`='%s'" % uuid).list()[0]['expired_time']
+            #如果已经存在duration
+            if old_duration:
+                old_year,old_month,old_day = map(int,(old_duration[:4],old_duration[4:6],old_duration[6:8]))
+                old_date = datetime.date(year=old_year,month=old_month,day=old_day)
+                next_month = old_date + relativedelta.relativedelta(months=duration)
+                next_month = next_month.strftime("%Y%m%d")
+                db.update(table,where="`uuid`='%s'" % uuid,enable=1,expired_time = next_month)
+                return {'message':'success'}
+            #如果无duration，设置enable=1,和expired_time
+            else:
+                nextmonth = datetime.date.today() + relativedelta.relativedelta(months=duration)
+                nextmonth = nextmonth.strftime("%Y%m%d")
+                db.update(table,where="`uuid`='%s'" % uuid,enable=1,expired_time = nextmonth)
+                return {'message':'success'}
+        except Exception,e:
+            raise _web.notfound(message=e)
+            
 
 class getDataByUUID():
     @mimerender(
