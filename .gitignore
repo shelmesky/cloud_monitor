@@ -1,1 +1,3 @@
 *.pyc
+/check_expired.py.log
+/nohup.out
