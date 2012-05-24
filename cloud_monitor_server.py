@@ -325,7 +325,8 @@ class thread_get_host_list_from_db(threading.Thread):
         while True:
             lists = db.select(cloud_host_table).list()
             for line in lists:
-                queue_host_list.put((line['ip'],line['uuid']))
+                if int(line['enable']) == 1:
+                    queue_host_list.put((line['ip'],line['uuid']))
             time.sleep(int(interval_check_peroid))
 
 # checker thread
