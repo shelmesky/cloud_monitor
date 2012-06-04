@@ -64,8 +64,7 @@ def _check_expired_cloud_token():
         for line in lines:
             token = line['token']
             last_use_time = line['last_use_time']
-            if not last_use_time: last_use_time = 0
-            no_active_time = int(now_date) - int(last_use_time)
+            if last_use_time: no_active_time = int(now_date) - int(last_use_time)
             if no_active_time >= 720:
                 _db.delete(table,where="`token`='%s'" % token)
     except:
