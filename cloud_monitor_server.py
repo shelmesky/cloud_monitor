@@ -8,6 +8,7 @@ import time
 import logging
 import xml
 from cloud_monitor_settings import *
+from monitor import ThreadPoolMonitor
 
 try:
     import web as _web
@@ -23,7 +24,8 @@ except (ImportError,ImportWarning) as e:
     print e
     sys.exit(1)
 
-_web.config.debug = False  
+
+_web.config.debug = True
 db = _web.database(dbn=db_engine,host=db_server,db=db_database,user=db_username,pw=db_password)
 cloud_config_table = 'cloud_config'
 cloud_host_table = 'cloud_host'
@@ -70,6 +72,21 @@ for k,v in options:
         daemon = False
 
 
+def condition_delete_uuid(uuid):
+    import shelve
+    uuids_dat = 'uuids_dat.dat'
+    uuid = str(uuid)
+    db = shelve.open(uuids_dat,'c')
+    try:
+        db[uuid]
+    except:
+        db[uuid]=0
+    if db[uuid] == 3:
+        db[uuid]=0
+        return True
+    db[uuid] += 1
+    return False
+    
 
 def setup_self():
     if os.getuid() != 0:
@@ -198,7 +215,7 @@ def daemonize (stdin='/dev/null', stdout='/dev/null', stderr='/dev/null'):
 class libvirt_client(object):
     def __init__(self,uri,queue):
         self.ip = uri
-        self.uri = 'qemu+ssh://root@%s/system' % uri
+        self.uri = 'qemu+tcp://%s/system' % uri
         self.queue = queue
         self.connect()
     
@@ -212,19 +229,22 @@ class libvirt_client(object):
         result = dict()
         try:
             dom = self.conn.lookupByUUIDString(uuid_string)
-        except _libvirt.libvirtError:
-            db.delete(cloud_host_table,where="`uuid`='%s'" % uuid_string)
-            return
+        except:
+	    ret = condition_delete_uuid(uuid_string)
+	    if ret:
+            	print time.strftime('%Y%m%d%H%M-delete-nonexists-uuid',time.localtime())
+            	db.delete(cloud_host_table,where="`uuid`='%s'" % uuid_string)
+	time_sleep = 3
         infos_first = dom.info()
         start_cputime = infos_first[4]
         start_time = time.time()
-        time.sleep(3)
+        time.sleep(time_sleep)
         infos_second = dom.info()
         end_cputime = infos_second[4]
         end_time = time.time()
         cputime = (end_cputime - start_cputime)
-        time_passed = 10000000000*(end_time - start_time)*infos_second[3]
-        cpu_usage = (cputime/time_passed)*100
+	cores = infos_second[3]
+        cpu_usage = 100 * cputime / (time_sleep*cores*1000000000)
         result['ip'] = self.ip
         result['name'] = dom.name()
         result['time'] = time.strftime('%Y%m%d%H%M',time.localtime())
@@ -240,12 +260,22 @@ class libvirt_client(object):
         vir_disks = getNodeValue(domain_xml,'domain.devices.disk.target.dev').get_value()
         disk_dict=dict()
         for disk in vir_disks:
-            disk_info = dom.blockInfo(disk,0)
-            disk_status_first = dom.blockStats(disk)
+            try:
+                disk_info = dom.blockInfo(disk,0)
+                disk_status_first = dom.blockStats(disk)
+            except Exception,e:
+                print time.strftime('%Y%m%d%H%M-error-blockInfo',time.localtime())
+                queue_log.put((r'libvirt error: %s' % e,'ERROR'))
+		break
             disk_dict[disk]=dict()
             start_time = time.time()
             time.sleep(3)
-            disk_status_second = dom.blockStats(disk)
+            try:
+                disk_status_second = dom.blockStats(disk)
+            except Exception,e:
+                print time.strftime('%Y%m%d%H%M-error-blockStats',time.localtime())
+                queue_log.put((r'libvirt error: %s' % e,'ERROR'))
+		break
             end_time = time.time()
             time_passed_disk = end_time - start_time
             
@@ -297,22 +327,25 @@ class thread_read_host_list(threading.Thread):
     def run(self):
         while True:
             for host in host_list:
-                dom_ids = []
-                uri = 'qemu+ssh://root@%s/system' % host
-                try:
-                    conn = _libvirt.open(uri)
-                except Exception,e:
-                    queue_log.put((r'libvirt error: can not connect to remote libvirtd','INFO'))
-                    break
-                domain_ids = conn.listDomainsID()
-                for domain_id in domain_ids:
-                    dom = conn.lookupByID(domain_id)
-                    dom_ids.append(dom.UUIDString())
-                for uuid in dom_ids:
-                    db_result = db.select(cloud_host_table,where="uuid='%s'" % uuid)
-                    if not db_result.list():
-                        db.insert(cloud_host_table,uuid=uuid,ip=host)
+	    	try:
+                    dom_ids = []
+                    uri = 'qemu+tcp://%s/system' % host
+                    try:
+                        conn = _libvirt.open(uri)
+                    except Exception,e:
+                        queue_log.put((r'libvirt error: can not connect to remote libvirtd','INFO'))
+                        break
+                    domain_ids = conn.listDomainsID()
+                    for domain_id in domain_ids:
+                        dom = conn.lookupByID(domain_id)
+                        dom_ids.append(dom.UUIDString())
+                    for uuid in dom_ids:
+                        db_result = db.select(cloud_host_table,where="uuid='%s'" % uuid)
+                        if not db_result.list():
+                            db.insert(cloud_host_table,uuid=uuid,ip=host)
                     #queue_host_list.put((host,uuid))
+		except:
+		    pass
             time.sleep(interval_travelsal_libvirtd)
 
 #TODO: read host list from db (table cloud_host)
@@ -323,10 +356,13 @@ class thread_get_host_list_from_db(threading.Thread):
     
     def run(self):
         while True:
-            lists = db.select(cloud_host_table).list()
-            for line in lists:
-                if int(line['enable']) == 1:
-                    queue_host_list.put((line['ip'],line['uuid']))
+	    try:
+                lists = db.select(cloud_host_table).list()
+                for line in lists:
+                    if int(line['enable']) == 1:
+                        queue_host_list.put((line['ip'],line['uuid']))
+	    except:
+		pass
             time.sleep(int(interval_check_peroid))
 
 # checker thread
@@ -337,10 +373,13 @@ class thread_do_check(threading.Thread):
         
     def run(self):
         while True:
+	    #try:
             uri,uuid = queue_host_list.get(True)
             virt = libvirt_client(uri,queue_result)
             virt.check(uuid)
             virt.close()
+	    #except:
+	    #pass
 
 
 #store result to database
@@ -351,8 +390,11 @@ class thread_update_db(threading.Thread):
 
     def run(self):
         while True:
-            results = queue_result.get(True)
-            db.insert(cloud_result_table,uuid=results['uuid_string'],time=results['time'],result=str(results))
+	    try:
+                results = queue_result.get(True)
+                db.insert(cloud_result_table,uuid=results['uuid_string'],time=results['time'],result=str(results))
+	    except:
+		pass
 
 
 def main():
@@ -378,8 +420,11 @@ def main():
     tl.start()
 
     
-    tr = thread_read_host_list()
-    tr.start()
+    tr_pool = []
+    for i in range(1):
+	tr = thread_read_host_list()
+	tr_pool.append(tr)
+    for i in tr_pool: i.start()
     
     tg = thread_get_host_list_from_db()
     tg.start()
@@ -395,6 +440,11 @@ def main():
         pool_update_db.append(tu)
     
     for t in pool_update_db: t.start()
+
+    monitor = ThreadPoolMonitor(tr=(tr_pool,), \
+			td=(pool_do_check,), \
+			tu=(pool_update_db,))
+    monitor.start()
 
 if __name__ == '__main__':    
     main()
