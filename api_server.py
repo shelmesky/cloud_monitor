@@ -53,6 +53,7 @@ urls = (
     '/gateway','gateway',
     '/benchmark','Benchmark',
     '/getinstancelist','getInstanceList',
+    '/getenabledlist','getEnabledList',
 )
 
 class tokens(object):
@@ -167,6 +168,30 @@ class getInstanceList(object):
         for line in ret:
             results.append(line)
         return {'message':results}
+
+
+class getEnabledList(object):
+    @mimerender(
+        default = 'json',
+        html = render_html,
+        xml  = render_xml,
+        json = render_json,
+        txt  = render_txt
+    )
+    @require_login
+    def POST(self):
+        table = 'cloud_host'
+        results = list()
+        ret = db.select(table,where="`enable`='1'",what='id,enable,uuid,expired_time').list()
+        for line in ret:
+            temp = dict()
+            temp['id'] = line['id']
+            temp['enable'] = line['enable']
+            temp['uuid'] = line['uuid']
+            temp['expired_time'] = line['expired_time']
+            results.append(temp)
+        return {'message':results}
+
 
 class setInterval():
     @mimerender(
