@@ -9,7 +9,7 @@ DEBUG = True
 
 SYSLOG_HANDLER_HOST = 'localhost'
 
-LOG_PATH = '../cloud_monitor.log'
+LOG_PATH = 'cloud_monitor.log'
 
 MAIL_HANDLER_HOST = 'smtp.qq.com'
 MAIL_HANDLER_FROMADDR = 'planx@qq.com'
