@@ -1,4 +1,4 @@
 *.pyc
-/check_expired.py.log
+*.log
 /nohup.out
 /local_conf.py
