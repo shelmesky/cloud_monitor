@@ -7,26 +7,31 @@ import getopt
 import time
 import logging
 import xml
+import argparse
+
 from cloud_monitor_settings import *
 from monitor import ThreadPoolMonitor
+from common.log import getlogger
+
+logger = getlogger("CloudMonitor")
 
 try:
     import web as _web
 except (ImportError,ImportWarning) as e:
-    print "Can not find python-webpy, in ubuntu just run \"sudo apt-get install python-webpy\"."
-    print e
-    sys.exit(1)
+    logger.debug("Can not find python-webpy, \
+           in ubuntu just run \"sudo apt-get install python-webpy\".")
+    raise e
 
 try:
     import libvirt as _libvirt
 except (ImportError,ImportWarning) as e:
-    print "Can not find python-libvirt, in ubuntu just run \"sudo apt-get install python-libvirt\"."
-    print e
-    sys.exit(1)
-
+    logger.debug("Can not find python-libvirt, \
+            in ubuntu just run \"sudo apt-get install python-libvirt\".")
+    raise e
 
 _web.config.debug = True
-db = _web.database(dbn=db_engine,host=db_server,db=db_database,user=db_username,pw=db_password)
+db = _web.database(dbn=db_engine, host=db_server, db=db_database,
+				   user=db_username, pw=db_password)
 cloud_config_table = 'cloud_config'
 cloud_host_table = 'cloud_host'
 cloud_result_table = 'cloud_result'
@@ -36,40 +41,12 @@ queue_result = Queue.Queue()    #put result of check here
 queue_log = Queue.Queue()       #put log message here
 
 
-interval_check_peroid = db.select(cloud_config_table,where="`key`='interval'").list()[0]['value'] #interval that used to check instance
-interval_travelsal_libvirtd = 60 #interval that travelsal uuids from remote libvirtd
-
-def usage():
-    print """Usage: cloud_monitor_server.py [-h|--help]  [-s|--setup]  [-d|--daemon] [-r|--dryrun]
-    """
-
-try:
-    options,args = getopt.getopt(sys.argv[1:],"hsdqr",["help", "setup","daemon","quit","dryrun"])
-except getopt.GetoptError,e:
-    print "Given arguments was error! %s" % e
-    usage()
-    sys.exit(2)
-
-
-if not options:
-    usage()
-    sys.exit(1)
-
-
-for k,v in options:
-    if k in("-h","--help"):
-        usage()
-        sys.exit(2)
-    elif k in("-s","--setup"):
-        setup = True
-    elif k in("-d","--daemon"):
-        daemon = True
-    elif k in ("-s","--setup") and k in ("-d","--daemon"):
-        setup = True
-        daemon = True
-    elif k in ("-r","--dryrun"):
-        setup =  False
-        daemon = False
+interval_check_peroid = db.select(cloud_config_table,
+								  where="`key`='interval'").list()[0]['value']
+								#interval that used to check instance
+								
+interval_travelsal_libvirtd = 60
+#interval that travelsal uuids from remote libvirtd
 
 
 def condition_delete_uuid(uuid):
@@ -152,29 +129,6 @@ class getNodeValue(object):
                         vir_interfaces.append(n.getAttribute(node[4]))
             return vir_interfaces
 
-
-#logger thread
-class loginfo(threading.Thread):
-    def __init__(self):
-        super(loginfo,self).__init__()
-        self.logger = logging.getLogger()
-        self.handler = logging.FileHandler('/tmp/server.log')
-        logflt = logging.Formatter("%(levelname)s [%(asctime)s]: %(message)s","%Y-%m-%d %H:%M:%S")
-        self.handler.setFormatter(logflt)
-        self.logger.addHandler(self.handler)
-        self.daemon = False
-            
-    def run(self):
-        levels = {"CRITICAL":50,"ERROR":40,"WARNING":30,"INFO":20,"DEBUG":10}
-        while True:
-            info,level = queue_log.get(True)
-            for key in levels:
-                    if level == key:
-                            self.logger.setLevel(levels[key])
-                            eval("logging."+key.lower()+"("+'"'+info.strip()+'"'+")")
-                            self.logger.removeHandler(self.handler)
-
-
 #make current process to daemon
 def daemonize (stdin='/dev/null', stdout='/dev/null', stderr='/dev/null'):
     # Do first fork.
@@ -222,19 +176,19 @@ class libvirt_client(object):
     def connect(self):
         try:
             self.conn = _libvirt.open(self.uri)
-        except Exception,e:
-            queue_log.put((r'libvirt error: can not connect to remote libvirtd','INFO'))
+        except Exception, e:
+            logger.exception(e)
     
     def check(self,uuid_string):
         result = dict()
         try:
             dom = self.conn.lookupByUUIDString(uuid_string)
         except:
-	    ret = condition_delete_uuid(uuid_string)
-	    if ret:
-            	print time.strftime('%Y%m%d%H%M-delete-nonexists-uuid',time.localtime())
-            	db.delete(cloud_host_table,where="`uuid`='%s'" % uuid_string)
-	time_sleep = 3
+            ret = condition_delete_uuid(uuid_string)
+        if ret:
+            logger.debug("Delete nonexists uuid: %s" % uuid_string)
+            db.delete(cloud_host_table,where="`uuid`='%s'" % uuid_string)
+        time_sleep = 3
         infos_first = dom.info()
         start_cputime = infos_first[4]
         start_time = time.time()
@@ -243,7 +197,7 @@ class libvirt_client(object):
         end_cputime = infos_second[4]
         end_time = time.time()
         cputime = (end_cputime - start_cputime)
-	cores = infos_second[3]
+        cores = infos_second[3]
         cpu_usage = 100 * cputime / (time_sleep*cores*1000000000)
         result['ip'] = self.ip
         result['name'] = dom.name()
@@ -257,25 +211,24 @@ class libvirt_client(object):
         
         domain_xml = dom.XMLDesc(0)
         
-        vir_disks = getNodeValue(domain_xml,'domain.devices.disk.target.dev').get_value()
+        vir_disks = getNodeValue(domain_xml,
+                                'domain.devices.disk.target.dev').get_value()
         disk_dict=dict()
         for disk in vir_disks:
             try:
                 disk_info = dom.blockInfo(disk,0)
                 disk_status_first = dom.blockStats(disk)
-            except Exception,e:
-                print time.strftime('%Y%m%d%H%M-error-blockInfo',time.localtime())
-                queue_log.put((r'libvirt error: %s' % e,'ERROR'))
-		break
+            except Exception, e:
+                logger.exception(e)
+                break
             disk_dict[disk]=dict()
             start_time = time.time()
             time.sleep(3)
             try:
                 disk_status_second = dom.blockStats(disk)
             except Exception,e:
-                print time.strftime('%Y%m%d%H%M-error-blockStats',time.localtime())
-                queue_log.put((r'libvirt error: %s' % e,'ERROR'))
-		break
+                logger.exception(e)
+                break
             end_time = time.time()
             time_passed_disk = end_time - start_time
             
@@ -327,13 +280,13 @@ class thread_read_host_list(threading.Thread):
     def run(self):
         while True:
             for host in host_list:
-	    	try:
+                try:
                     dom_ids = []
                     uri = 'qemu+tcp://%s/system' % host
                     try:
-                        conn = _libvirt.open(uri)
+                       conn = _libvirt.open(uri)
                     except Exception,e:
-                        queue_log.put((r'libvirt error: can not connect to remote libvirtd','INFO'))
+                        logger.exception(e)
                         break
                     domain_ids = conn.listDomainsID()
                     for domain_id in domain_ids:
@@ -344,9 +297,10 @@ class thread_read_host_list(threading.Thread):
                         if not db_result.list():
                             db.insert(cloud_host_table,uuid=uuid,ip=host)
                     #queue_host_list.put((host,uuid))
-		except:
-		    pass
-            time.sleep(interval_travelsal_libvirtd)
+                except Exception, e:
+                    logger.exception(e)
+                time.sleep(interval_travelsal_libvirtd)
+
 
 #TODO: read host list from db (table cloud_host)
 class thread_get_host_list_from_db(threading.Thread):
@@ -356,13 +310,13 @@ class thread_get_host_list_from_db(threading.Thread):
     
     def run(self):
         while True:
-	    try:
+            try:
                 lists = db.select(cloud_host_table).list()
                 for line in lists:
                     if int(line['enable']) == 1:
                         queue_host_list.put((line['ip'],line['uuid']))
-	    except:
-		pass
+            except Exception, e:
+                logger.exception(e)
             time.sleep(int(interval_check_peroid))
 
 # checker thread
@@ -373,13 +327,14 @@ class thread_do_check(threading.Thread):
         
     def run(self):
         while True:
-	    #try:
-            uri,uuid = queue_host_list.get(True)
-            virt = libvirt_client(uri,queue_result)
-            virt.check(uuid)
-            virt.close()
-	    #except:
-	    #pass
+            try:
+                uri,uuid = queue_host_list.get(True)
+                virt = libvirt_client(uri,queue_result)
+                virt.check(uuid)
+                virt.close()
+            except Exception, e:
+                logger.exception(e)
+                raise e
 
 
 #store result to database
@@ -390,26 +345,33 @@ class thread_update_db(threading.Thread):
 
     def run(self):
         while True:
-	    try:
+            try:
                 results = queue_result.get(True)
                 db.insert(cloud_result_table,uuid=results['uuid_string'],time=results['time'],result=str(results))
-	    except:
-		pass
+            except Exception, e:
+                logger.exception(e)
 
 
 def main():
-    try:
-        if globals()['setup']: setup_self()
-    except KeyError:
-        pass
+    parser = argparse.ArgumentParser(description="cloud monitor cli argparser")
+    exclusive_group = parser.add_mutually_exclusive_group(required=False)
     
-    try:
-        if globals()['daemon']:
-            daemon_log_path = os.getcwd()+"/cloud_monitor_daemon.log"
-            daemonize('/dev/null',daemon_log_path,daemon_log_path)
-    except KeyError:
-        pass
+    exclusive_group.add_argument('--dryrun', action='store_true',
+                            dest='dryrun', default=False, help='just dry run')
+    exclusive_group.add_argument('--daemon', action='store_true',
+                            dest='daemon', default=False, help='make this process go backgroup.')
     
+    sysargs = sys.argv[1:]
+    args = parser.parse_args(args=sysargs)
+    if len(sysargs) < 1:
+        parser.print_help()
+    else:
+        if args.dryrun:
+           pass
+        elif args.daemon:
+           daemon_log_path = os.getcwd()+"/cloud_monitor_daemon.log"
+           daemonize('/dev/null',daemon_log_path,daemon_log_path)
+
     pool_do_check = []
     pool_update_db = []
     num_of_do_check = 100
@@ -422,12 +384,13 @@ def main():
     
     tr_pool = []
     for i in range(1):
-	tr = thread_read_host_list()
-	tr_pool.append(tr)
-    for i in tr_pool: i.start()
-    
-    tg = thread_get_host_list_from_db()
-    tg.start()
+        tr = thread_read_host_list()
+        tr_pool.append(tr)
+
+    for i in tr_pool:
+        i.start()
+        tg = thread_get_host_list_from_db()
+        tg.start()
     
     for i in range(num_of_do_check):
         td = thread_do_check()
@@ -442,8 +405,8 @@ def main():
     for t in pool_update_db: t.start()
 
     monitor = ThreadPoolMonitor(tr=(tr_pool,), \
-			td=(pool_do_check,), \
-			tu=(pool_update_db,))
+            td=(pool_do_check,), \
+            tu=(pool_update_db,))
     monitor.start()
 
 if __name__ == '__main__':    
