@@ -194,9 +194,9 @@ class libvirt_client(object):
             dom = self.conn.lookupByUUIDString(uuid_string)
         except:
             ret = condition_delete_uuid(uuid_string)
-        if ret:
-            logger.debug("Delete nonexists uuid: %s" % uuid_string)
-            db.delete(cloud_host_table,where="`uuid`='%s'" % uuid_string)
+            if ret:
+                logger.debug("Delete nonexists uuid: %s" % uuid_string)
+                db.delete(cloud_host_table,where="`uuid`='%s'" % uuid_string)
         time_sleep = 3
         infos_first = dom.info()
         start_cputime = infos_first[4]
@@ -374,10 +374,12 @@ def main():
     args = parser.parse_args(args=sysargs)
     if len(sysargs) < 1:
         parser.print_help()
+        sys.exit(1)
     else:
         if args.dryrun:
            pass
         elif args.daemon:
+           logger.debug("we will disappear from console :)")
            daemon_log_path = os.getcwd()+"/cloud_monitor_daemon.log"
            daemonize('/dev/null',daemon_log_path,daemon_log_path)
 
