@@ -193,6 +193,7 @@ class libvirt_client(object):
         try:
             dom = self.conn.lookupByUUIDString(uuid_string)
         except:
+            logger.error("Error occurred while get dom info from %s" % uuid_string)
             ret = condition_delete_uuid(uuid_string)
             if ret:
                 logger.debug("Delete nonexists uuid: %s" % uuid_string)
@@ -228,6 +229,7 @@ class libvirt_client(object):
                 disk_info = dom.blockInfo(disk,0)
                 disk_status_first = dom.blockStats(disk)
             except Exception, e:
+                logger.error("Error occurred while get blockstatus of %s" % uuid_string)
                 logger.exception(e)
                 break
             disk_dict[disk]=dict()
@@ -236,6 +238,7 @@ class libvirt_client(object):
             try:
                 disk_status_second = dom.blockStats(disk)
             except Exception,e:
+                logger.error("Error occurred while get blockstatus of %s" % uuid_string)
                 logger.exception(e)
                 break
             end_time = time.time()
