@@ -1,4 +1,5 @@
 *.pyc
 *.log
+*.dat
 /nohup.out
 /local_conf.py
