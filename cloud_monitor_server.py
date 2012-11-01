@@ -30,8 +30,14 @@ except (ImportError,ImportWarning) as e:
     raise e
 
 _web.config.debug = True
-db = _web.database(dbn=db_engine, host=db_server, db=db_database,
-				   user=db_username, pw=db_password)
+
+try:
+	db = _web.database(dbn=db_engine, host=db_server, db=db_database,
+									user=db_username, pw=db_password)
+except Exception, e:
+	logger.exception(e)
+	raise e
+
 cloud_config_table = 'cloud_config'
 cloud_host_table = 'cloud_host'
 cloud_result_table = 'cloud_result'
