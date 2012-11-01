@@ -19,3 +19,8 @@ frame_max_size = 131072 # 128 KB
 
 # configuration for loadbalance server
 loadbalance_server = 'http://127.0.0.1:8888'
+
+try:
+    from local_conf import *
+except:
+    pass
