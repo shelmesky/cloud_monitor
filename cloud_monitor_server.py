@@ -386,11 +386,6 @@ def main():
     num_of_do_check = 100
     num_of_update_db = 3
 
-        
-    tl = loginfo()
-    tl.start()
-
-    
     tr_pool = []
     for i in range(1):
         tr = thread_read_host_list()
