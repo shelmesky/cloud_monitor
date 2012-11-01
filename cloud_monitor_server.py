@@ -46,10 +46,13 @@ queue_host_list = Queue.Queue()  #put hostlist here
 queue_result = Queue.Queue()    #put result of check here
 queue_log = Queue.Queue()       #put log message here
 
-
-interval_check_peroid = db.select(cloud_config_table,
+try:
+	interval_check_peroid = db.select(cloud_config_table,
 								  where="`key`='interval'").list()[0]['value']
 								#interval that used to check instance
+except Exception, e:
+	logger.exception(e)
+	raise e
 								
 interval_travelsal_libvirtd = 60
 #interval that travelsal uuids from remote libvirtd
