@@ -18,7 +18,9 @@ virtual_host = "/"
 frame_max_size = 131072 # 128 KB
 
 # configuration for loadbalance server
+enable_loadbalance = True
 loadbalance_server = 'http://127.0.0.1:8888'
+notify_threshold = 80
 
 try:
     from local_conf import *

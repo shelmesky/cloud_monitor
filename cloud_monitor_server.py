@@ -13,6 +13,11 @@ from cloud_monitor_settings import *
 from monitor import ThreadPoolMonitor
 from common.log import getlogger
 
+from rpc_send import instance_queue
+from rpc_send import loadbalanceNotify
+from rpc_send import MonitorReceiver
+from rpc_send import MonitorSender
+
 logger = getlogger("CloudMonitor")
 
 try:
@@ -176,10 +181,11 @@ def daemonize (stdin='/dev/null', stdout='/dev/null', stderr='/dev/null'):
 
 #libvirt client: actually do some work
 class libvirt_client(object):
-    def __init__(self,uri,queue):
+    def __init__(self, uri, queue, load_notify):
         self.ip = uri
         self.uri = 'qemu+tcp://%s/system' % uri
         self.queue = queue
+        self.load_notify = load_notify
         self.connect()
     
     def connect(self):
@@ -218,6 +224,9 @@ class libvirt_client(object):
         result['number_cpus'] = infos_second[3]
         result['cpu_usage'] = cpu_usage
         result['uuid_string'] = dom.UUIDString()
+        
+        if enable_loadbalance:
+            self.load_notify.notify_loadbalance(uuid_string, cpu_usage)
         
         domain_xml = dom.XMLDesc(0)
         
@@ -333,15 +342,16 @@ class thread_get_host_list_from_db(threading.Thread):
 
 # checker thread
 class thread_do_check(threading.Thread):
-    def __init__(self):
+    def __init__(self, load_notify=None):
         super(thread_do_check,self).__init__()
         self.daemon = False
+        self.load_notify = load_notify
         
     def run(self):
         while True:
             try:
                 uri,uuid = queue_host_list.get(True)
-                virt = libvirt_client(uri,queue_result)
+                virt = libvirt_client(uri, queue_result, self.load_notify)
                 virt.check(uuid)
                 virt.close()
             except Exception, e:
@@ -386,6 +396,17 @@ def main():
            daemon_log_path = os.getcwd()+"/cloud_monitor_daemon.log"
            daemonize('/dev/null',daemon_log_path,daemon_log_path)
 
+    load_notify = None
+    # if loadbalance notify has been enabled in settings
+    if enable_loadbalance:
+        sender_thread = MonitorSender(instance_queue)
+        sender_thread.start()
+
+        receiver_thread = MonitorReceiver()
+        receiver_thread.start()
+
+        load_notify = loadbalanceNotify(receiver_thread)
+
     pool_do_check = []
     pool_update_db = []
     num_of_do_check = 100
@@ -402,7 +423,7 @@ def main():
         tg.start()
     
     for i in range(num_of_do_check):
-        td = thread_do_check()
+        td = thread_do_check(load_notify)
         pool_do_check.append(td)
     
     for t in pool_do_check: t.start()
