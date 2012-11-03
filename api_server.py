@@ -182,7 +182,10 @@ class getEnabledList(object):
     def POST(self):
         table = 'cloud_host'
         results = list()
-        ret = db.select(table,where="`enable`='1'",what='id,enable,uuid,expired_time').list()
+        try:
+            ret = db.select(table,where="`enable`='1'",what='id,enable,uuid,expired_time').list()
+        except:
+            return {'message': 'empty'}
         for line in ret:
             temp = dict()
             temp['id'] = line['id']
