@@ -5,6 +5,8 @@ import sys
 import threading
 import Queue
 import simplejson
+import pdb
+import time
 
 import pika
 from pika.adapters import select_connection
@@ -14,10 +16,15 @@ from common import http_api
 
 instance_queue = Queue.Queue()
 
+_DEBUG = False
+
+if _DEBUG:
+    pdb.set_trace()
+
 
 class MonitorSender(threading.Thread):
     """
-    send alert message to loadbalance server.
+    send uuid to loadbalance server when catch the threshold.
     """
     
     _instance = None
@@ -75,7 +82,7 @@ class MonitorSender(threading.Thread):
     
 class MonitorReceiver(threading.Thread):
     """
-    receive instance uuid from web client, and maintain the instance_list.
+    receive instance uuid from web client, and maintain the instance list.
     """
     
     _instance = None
@@ -171,6 +178,7 @@ class loadbalanceNotify(object):
         self.exceed_threshold = {}
 
     def notify_loadbalance(self, uuid, cpu_usage):
+        print self.exceed_threshold
         if self.exceed_threshold.get(uuid, None) >= 5:
             self.exceed_threshold[uuid] = 0
             # send uuid to instance_queue
@@ -180,7 +188,7 @@ class loadbalanceNotify(object):
                 if int(cpu_usage) > notify_threshold:
                     self.exceed_threshold[uuid] += 1
             else:
-                self.exceed_threshold[uuid] = 0
+                self.exceed_threshold[uuid] = 1
 
 
 if __name__ == '__main__':
@@ -193,8 +201,7 @@ if __name__ == '__main__':
     
     import time
     load_notify = loadbalanceNotify(receiver_thread)
-    while 1:
-        print "send notify"
-        load_notify.notify_loadbalance("0084afec-950e-4132-a64c-f2342c34f85c", 100)
-        time.sleep(2)
+    for i in range(6):
+        print "send notify: e7afadfe-ad49-4916-8e5b-c861e70341b1, cpu_usage: 100"
+        load_notify.notify_loadbalance("e7afadfe-ad49-4916-8e5b-c861e70341b1", 100)
 

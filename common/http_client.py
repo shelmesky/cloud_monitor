@@ -10,7 +10,7 @@ class Client(object):
         self.api = api
     
     def listinstance(self):
-        url = '/api/sys/instance'
+        url = '/api/instance/uuid'
         content = {}
         resp,body = self.api.get(url, body=content)
         return body

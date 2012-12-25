@@ -16,7 +16,10 @@ def _httpclient():
 
 def listinstance():
     ret = _httpclient().interface.listinstance()
-    return simplejson.loads(ret)
+    try:
+        return simplejson.loads(ret)
+    except:
+        return []
 
 
 if __name__ == '__main__':
