@@ -7,6 +7,7 @@ import Queue
 import simplejson
 import pdb
 import time
+import signal
 
 import pika
 from pika.adapters import select_connection
@@ -190,9 +191,58 @@ class loadbalanceNotify(object):
             else:
                 self.exceed_threshold[uuid] = 1
 
+class Watcher:   
+    """this class solves two problems with multithreaded  
+    programs in Python, (1) a signal might be delivered  
+    to any thread (which is just a malfeature) and (2) if  
+    the thread that gets the signal is waiting, the signal  
+    is ignored (which is a bug).  
+ 
+    The watcher is a concurrent process (not thread) that  
+    waits for a signal and the process that contains the  
+    threads.  See Appendix A of The Little Book of Semaphores.  
+    http://greenteapress.com/semaphores/  
+ 
+    I have only tested this on Linux.  I would expect it to  
+    work on the Macintosh and not work on Windows.  
+    """  
+  
+    def __init__(self):   
+        """ Creates a child thread, which returns.  The parent  
+            thread waits for a KeyboardInterrupt and then kills  
+            the child thread.  
+        """  
+        self.child = os.fork()   
+        if self.child == 0:   
+            return  
+        else:   
+            self.watch()
+            
+    def watch(self):   
+        try:   
+            os.wait()   
+        except (KeyboardInterrupt, SystemExit):   
+            # I put the capital B in KeyBoardInterrupt so I can   
+            # tell when the Watcher gets the SIGINT
+            self.kill()   
+        sys.exit()   
+  
+    def kill(self):   
+        try:   
+            os.kill(self.child, signal.SIGKILL)   
+        except OSError: pass 
 
-if __name__ == '__main__':
+
+def main():
+    Watcher()
+
     # make a test
+    try:
+        instance = sys.argv[1]
+        cpu = sys.argv[2]
+    except IndexError, e:
+	print "need argument!"
+	sys.exit(1)
     sender_thread = MonitorSender(instance_queue)
     sender_thread.start()
     
@@ -202,6 +252,13 @@ if __name__ == '__main__':
     import time
     load_notify = loadbalanceNotify(receiver_thread)
     for i in range(6):
-        print "send notify: e7afadfe-ad49-4916-8e5b-c861e70341b1, cpu_usage: 100"
-        load_notify.notify_loadbalance("e7afadfe-ad49-4916-8e5b-c861e70341b1", 100)
+        print "send notify: %s, cpu_usage: %s" % (instance, cpu)
+        load_notify.notify_loadbalance(instance, cpu)
+	time.sleep(1)
+
+if __name__ == '__main__':
+    try:
+	main()
+    except KeyboardInterrupt:
+	sys.exit(1)
 
