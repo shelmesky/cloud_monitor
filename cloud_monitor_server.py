@@ -8,6 +8,7 @@ import time
 import logging
 import xml
 import argparse
+import signal
 
 from cloud_monitor_settings import *
 from monitor import ThreadPoolMonitor
@@ -34,7 +35,7 @@ except (ImportError,ImportWarning) as e:
             in ubuntu just run \"sudo apt-get install python-libvirt\".")
     raise e
 
-_web.config.debug = True
+_web.config.debug = False
 
 try:
 	db = _web.database(dbn=db_engine, host=db_server, db=db_database,
@@ -374,14 +375,57 @@ class thread_update_db(threading.Thread):
                 logger.exception(e)
 
 
+class Watcher:   
+    """this class solves two problems with multithreaded  
+    programs in Python, (1) a signal might be delivered  
+    to any thread (which is just a malfeature) and (2) if  
+    the thread that gets the signal is waiting, the signal  
+    is ignored (which is a bug).  
+ 
+    The watcher is a concurrent process (not thread) that  
+    waits for a signal and the process that contains the  
+    threads.  See Appendix A of The Little Book of Semaphores.  
+    http://greenteapress.com/semaphores/  
+ 
+    I have only tested this on Linux.  I would expect it to  
+    work on the Macintosh and not work on Windows.  
+    """  
+  
+    def __init__(self):   
+        """ Creates a child thread, which returns.  The parent  
+            thread waits for a KeyboardInterrupt and then kills  
+            the child thread.  
+        """  
+        self.child = os.fork()   
+        if self.child == 0:   
+            return  
+        else:   
+            self.watch()
+            
+    def watch(self):   
+        try:   
+            os.wait()   
+        except (KeyboardInterrupt, SystemExit):   
+            # I put the capital B in KeyBoardInterrupt so I can   
+            # tell when the Watcher gets the SIGINT
+            logger.debug("server exit at %s" % time.asctime())
+            self.kill()   
+        sys.exit()   
+  
+    def kill(self):   
+        try:   
+            os.kill(self.child, signal.SIGKILL)   
+        except OSError: pass 
+
+
 def main():
     parser = argparse.ArgumentParser(description="cloud monitor cli argparser")
     exclusive_group = parser.add_mutually_exclusive_group(required=False)
     
-    exclusive_group.add_argument('--dryrun', action='store_true',
+    exclusive_group.add_argument('-r', '--dryrun', action='store_true',
                             dest='dryrun', default=False, help='just dry run')
-    exclusive_group.add_argument('--daemon', action='store_true',
-                            dest='daemon', default=False, help='make this process go backgroup.')
+    exclusive_group.add_argument('-d', '--daemon', action='store_true',
+                            dest='daemon', default=False, help='make this process go background.')
     
     sysargs = sys.argv[1:]
     args = parser.parse_args(args=sysargs)
@@ -390,7 +434,7 @@ def main():
         sys.exit(1)
     else:
         if args.dryrun:
-           pass
+           Watcher()
         elif args.daemon:
            logger.debug("we will disappear from console :)")
            daemon_log_path = os.getcwd()+"/cloud_monitor_daemon.log"
